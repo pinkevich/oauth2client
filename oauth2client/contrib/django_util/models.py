@@ -19,7 +19,7 @@ import pickle
 import jsonpickle
 
 from django.db import models
-from django.utils.encoding import force_bytes, force_str
+from django.utils import encoding
 
 from oauth2client.client import Credentials
 
@@ -35,52 +35,29 @@ class CredentialsField(models.Field):
         return 'BinaryField'
 
     def from_db_value(self, value, expression, connection):
-        """Overrides ``models.Field`` method. This converts the value
-        returned from the database to an instance of this class.
-        """
+        """Converts the value returned from the database to an instance of this class."""
         return self.to_python(value)
 
     def to_python(self, value):
-        """Overrides ``models.Field`` method. This is used to convert
-        bytes (from serialization etc) to an instance of this class"""
+        """Converts bytes (from serialization etc) to an instance of this class."""
         if value is None:
             return None
         elif isinstance(value, Credentials):
             return value
         else:
             try:
-                decoded = force_str(base64.b64decode(force_bytes(value)))
-                return jsonpickle.decode(decoded)
-            except UnicodeDecodeError:
-                try:
-                    return pickle.loads(base64.b64decode(force_bytes(value)))
-                except (pickle.PickleError, EOFError) as e:
-                    raise ValueError(f"Error decoding with pickle: {e}")
-            except ValueError as e:
-                raise ValueError(f"Error decoding value: {e}")
+                return jsonpickle.decode(base64.b64decode(encoding.force_bytes(value)).decode())
+            except ValueError:
+                return pickle.loads(base64.b64decode(encoding.force_bytes(value)))
 
     def get_prep_value(self, value):
-        """Overrides ``models.Field`` method. This is used to convert
-        the value from an instances of this class to bytes that can be
-        inserted into the database.
-        """
+        """Converts the value from an instance of this class to bytes for the database."""
         if value is None:
             return None
         else:
-            encoded = base64.b64encode(jsonpickle.encode(value, unpicklable=False).encode())
-            return force_bytes(encoded)
+            return encoding.force_str(base64.b64encode(jsonpickle.encode(value).encode()))
 
     def value_to_string(self, obj):
-        """Convert the field value from the provided model to a string.
-
-        Used during model serialization.
-
-        Args:
-            obj: db.Model, model object
-
-        Returns:
-            string, the serialized field value
-        """
-        value = self.value_from_object(obj)
-        prep_value = self.get_prep_value(value)
-        return force_str(prep_value)
+        """Converts the field value from the model to a string for serialization."""
+        value = getattr(obj, self.attname)
+        return self.get_prep_value(value)

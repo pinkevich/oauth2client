@@ -15,6 +15,7 @@
 """Contains classes used for the Django ORM storage."""
 
 import base64
+import pickle
 import jsonpickle
 
 from django.db import models
@@ -50,7 +51,12 @@ class CredentialsField(models.Field):
             try:
                 decoded = force_str(base64.b64decode(force_bytes(value)))
                 return jsonpickle.decode(decoded)
-            except (ValueError, TypeError) as e:
+            except UnicodeDecodeError:
+                try:
+                    return pickle.loads(base64.b64decode(force_bytes(value)))
+                except (pickle.PickleError, EOFError) as e:
+                    raise ValueError(f"Error decoding with pickle: {e}")
+            except ValueError as e:
                 raise ValueError(f"Error decoding value: {e}")
 
     def get_prep_value(self, value):

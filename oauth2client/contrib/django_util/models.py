@@ -15,27 +15,25 @@
 """Contains classes used for the Django ORM storage."""
 
 import base64
-import pickle
-
-from django.db import models
-from django.utils import encoding
 import jsonpickle
 
-import oauth2client
+from django.db import models
+from django.utils.encoding import force_bytes, force_str
+
+from oauth2client.client import Credentials
 
 
 class CredentialsField(models.Field):
     """Django ORM field for storing OAuth2 Credentials."""
 
     def __init__(self, *args, **kwargs):
-        if 'null' not in kwargs:
-            kwargs['null'] = True
-        super(CredentialsField, self).__init__(*args, **kwargs)
+        kwargs.setdefault('null', True)
+        super().__init__(*args, **kwargs)
 
     def get_internal_type(self):
         return 'BinaryField'
 
-    def from_db_value(self, value, expression, connection, context=None):
+    def from_db_value(self, value, expression, connection):
         """Overrides ``models.Field`` method. This converts the value
         returned from the database to an instance of this class.
         """
@@ -46,15 +44,14 @@ class CredentialsField(models.Field):
         bytes (from serialization etc) to an instance of this class"""
         if value is None:
             return None
-        elif isinstance(value, oauth2client.client.Credentials):
+        elif isinstance(value, Credentials):
             return value
         else:
             try:
-                return jsonpickle.decode(
-                    base64.b64decode(encoding.smart_bytes(value)).decode())
-            except ValueError:
-                return pickle.loads(
-                    base64.b64decode(encoding.smart_bytes(value)))
+                decoded = force_str(base64.b64decode(force_bytes(value)))
+                return jsonpickle.decode(decoded)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Error decoding value: {e}")
 
     def get_prep_value(self, value):
         """Overrides ``models.Field`` method. This is used to convert
@@ -64,8 +61,8 @@ class CredentialsField(models.Field):
         if value is None:
             return None
         else:
-            return encoding.smart_bytes(
-                base64.b64encode(jsonpickle.encode(value).encode()))
+            encoded = base64.b64encode(jsonpickle.encode(value, unpicklable=False).encode())
+            return force_bytes(encoded)
 
     def value_to_string(self, obj):
         """Convert the field value from the provided model to a string.
@@ -78,5 +75,6 @@ class CredentialsField(models.Field):
         Returns:
             string, the serialized field value
         """
-        value = self._get_val_from_obj(obj)
-        return self.get_prep_value(value)
+        value = self.value_from_object(obj)
+        prep_value = self.get_prep_value(value)
+        return force_str(prep_value)
